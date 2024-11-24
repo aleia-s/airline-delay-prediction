@@ -33,7 +33,7 @@ scaler = StandardScaler()
 X_train = scaler.fit_transform(X_train)
 X_test = scaler.transform(X_test)
 
-svm = SVC(kernel='linear', random_state=42)
+svm = SVC(kernel='rbf', random_state=42)
 svm.fit(X_train, y_train)
 
 y_pred = svm.predict(X_test)
