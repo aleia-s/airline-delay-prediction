@@ -1,67 +1,88 @@
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import KFold
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-# Load the data
-file_path = 'flights-wx.csv'
-flights_data = pd.read_csv(file_path)
+data = pd.read_csv("flights-wx.csv")
+data['FlightDate'] = pd.to_datetime(data['FlightDate'])
+data['DayOfWeek'] = data['FlightDate'].dt.dayofweek + 1
 
-# Remove canceled flights
-df_cleaned = flights_data[flights_data['Cancelled'] == 0].copy()
+data = data[['DepTime', 'DepDelay', 'DayOfWeek', 'Reporting_Airline', 'ArrDelay',
+             'Cancelled', 'ORIGIN_ceiling', 'ORIGIN_wind', 'ORIGIN_visibility',
+             'DEST_ceiling', 'DEST_wind', 'DEST_visibility']]
+data = data.dropna()
 
-# Fill missing values in relevant columns with median (safe for numeric data)
-df_cleaned['DepTime'].fillna(df_cleaned['DepTime'].median(), inplace=True)
-df_cleaned['DepDelay'].fillna(df_cleaned['DepDelay'].median(), inplace=True)
-df_cleaned['ArrDelay'].fillna(df_cleaned['ArrDelay'].median(), inplace=True)
-df_cleaned['ORIGIN_ceiling'].fillna(df_cleaned['ORIGIN_ceiling'].median(), inplace=True)
-df_cleaned['ORIGIN_wind'].fillna(df_cleaned['ORIGIN_wind'].median(), inplace=True)
-df_cleaned['ORIGIN_visibility'].fillna(df_cleaned['ORIGIN_visibility'].median(), inplace=True)
-df_cleaned['DEST_ceiling'].fillna(df_cleaned['DEST_ceiling'].median(), inplace=True)
-df_cleaned['DEST_wind'].fillna(df_cleaned['DEST_wind'].median(), inplace=True)
-df_cleaned['DEST_visibility'].fillna(df_cleaned['DEST_visibility'].median(), inplace=True)
+label_encoder = LabelEncoder()
+data['Reporting_Airline'] = label_encoder.fit_transform(data['Reporting_Airline'])
 
-# Create target column, 1 is delayed, 0 is not
-df_cleaned['IsDelayed'] = (df_cleaned['ArrDelay'] > 15).astype(int)
+X = data[['DepTime', 'DepDelay', 'DayOfWeek', 'Reporting_Airline', 'Cancelled',
+          'ORIGIN_ceiling', 'ORIGIN_wind', 'ORIGIN_visibility',
+          'DEST_ceiling', 'DEST_wind', 'DEST_visibility']]
+y = (data['ArrDelay'] > 15).astype(int)
 
-features = ['DepTime', 'DepDelay', 'Reporting_Airline', 'Origin', 'Dest', 
-            'ORIGIN_ceiling', 'ORIGIN_wind', 'ORIGIN_visibility', 
-            'DEST_ceiling', 'DEST_wind', 'DEST_visibility']
-target = 'IsDelayed'
-
-categorical_columns = ['Reporting_Airline', 'Origin', 'Dest']
-label_encoders = {}
-
-for col in categorical_columns:
-    le = LabelEncoder()
-    df_cleaned[col] = le.fit_transform(df_cleaned[col])
-    label_encoders[col] = le 
-
-# Extract X and Y
-X = df_cleaned[features]
-y = df_cleaned[target]
-
-# Scale numeric features
 scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+X = scaler.fit_transform(X)
 
-# K-Fold Cross-Validation with KNN
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+results = {}
+
+# SVM
+svm = SVC(kernel='linear', random_state=42)
+svm_accuracies = cross_val_score(svm, X, y, cv=skf, scoring='accuracy')
+results['SVM'] = svm_accuracies
+
+# KNN
 knn = KNeighborsClassifier(n_neighbors=5)
-kf = KFold(n_splits=5, shuffle=True, random_state=42)
+knn_accuracies = cross_val_score(knn, X, y, cv=skf, scoring='accuracy')
+results['KNN'] = knn_accuracies
 
-# Perform cross-validation
-cv_scores = []
-for train_index, test_index in kf.split(X_scaled):
-    X_train, X_test = X_scaled[train_index], X_scaled[test_index]
-    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+# MLP
+def create_mlp_model():
+    model = Sequential([
+        Dense(128, activation='relu', input_shape=(X.shape[1],)),
+        Dropout(0.3),
+        Dense(64, activation='relu'),
+        Dropout(0.3),
+        Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+mlp_accuracies = []
+for train_idx, test_idx in skf.split(X, y):
+    X_train, X_test = X[train_idx], X[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
     
-    # Train and evaluate
-    knn.fit(X_train, y_train)
-    y_pred = knn.predict(X_test)
-    cv_scores.append(accuracy_score(y_test, y_pred))
+    # Train MLP
+    model = create_mlp_model()
+    model.fit(X_train, y_train, epochs=30, batch_size=32, verbose=0)
+    
+    # Evaluate MLP
+    _, accuracy = model.evaluate(X_test, y_test, verbose=0)
+    mlp_accuracies.append(accuracy)
+
+results['MLP'] = mlp_accuracies
 
 # Results
-print(f"Cross-Validation Accuracies: {cv_scores}")
-print(f"Mean Accuracy: {np.mean(cv_scores):.2f}")
+plt.figure(figsize=(10, 6))
+for model, scores in results.items():
+    plt.plot(range(1, len(scores) + 1), scores, marker='o', label=f'{model} (Mean: {np.mean(scores):.2f})')
+
+plt.title('Cross-Validation Accuracy Comparison')
+plt.xlabel('Fold')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.grid()
+plt.show()
+
+for model, scores in results.items():
+    print(f"{model} Mean Accuracy: {np.mean(scores):.2f} ± {np.std(scores):.2f}")

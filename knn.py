@@ -3,11 +3,11 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-#Load the Dataset
+# Load the Dataset
 try:
     data = pd.read_csv('flights-wx.csv')
     print("Dataset loaded successfully.")
@@ -58,20 +58,32 @@ accuracy = accuracy_score(y_test, y_pred)
 print(f"Model Accuracy: {accuracy * 100:.2f}%")
 print("\nClassification Report:\n", classification_report(y_test, y_pred))
 
-'''
-# Visualize the Data
-print("Visualizing the data...")
-# Distribution of delays
-sns.countplot(x=y, palette='coolwarm')
-plt.title('Distribution of Flight Delays')
-plt.xlabel('Delayed (0 = No Delay, 1 = Delayed)')
-plt.ylabel('Count')
+k_values = range(1, 21)  # Testing k from 1 to 20
+train_accuracies = []
+test_accuracies = []
+
+for k in k_values:
+    knn = KNeighborsClassifier(n_neighbors=k)
+    knn.fit(X_train, y_train)
+    train_accuracies.append(knn.score(X_train, y_train))
+    test_accuracies.append(knn.score(X_test, y_test))
+
+plt.figure(figsize=(10, 6))
+plt.plot(k_values, train_accuracies, label='Training Accuracy', marker='o')
+plt.plot(k_values, test_accuracies, label='Test Accuracy', marker='s')
+plt.xlabel('Number of Neighbors (k)')
+plt.ylabel('Accuracy')
+plt.title('Training and Test Accuracy vs. Number of Neighbors (k)')
+plt.legend()
+plt.grid()
 plt.show()
 
-# Correlation heatmap
-correlation_matrix = data.corr()
-plt.figure(figsize=(10, 8))
-sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt='.2f')
-plt.title('Correlation Heatmap')
+# Confusion Matrix
+conf_matrix = confusion_matrix(y_test, y_pred)
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=['On Time', 'Delayed'], yticklabels=['On Time', 'Delayed'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
 plt.show()
-'''
